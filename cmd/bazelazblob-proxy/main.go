@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	bazelazblob "github.com/cpuguy83/bazel-azblob"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -30,10 +31,20 @@ func main() {
 		exit = true
 	}
 
-	var dialOpts []grpc.DialOption
+	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error creating Azure credential:", err)
+	}
+
+	dialOpts := []grpc.DialOption{
+		grpc.WithStreamInterceptor(bazelazblob.StreamClientAuthInterceptor(cred)),
+		grpc.WithUnaryInterceptor(bazelazblob.UnaryClientAuthInterceptor(cred)),
+	}
+
 	if *grpcInsecureFl || autoInsecure {
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
+
 	cc, err := grpc.NewClient(*remoteAddrFl, dialOpts...)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error setting up grpc client:", err)
