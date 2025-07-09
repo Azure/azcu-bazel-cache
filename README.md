@@ -4,9 +4,8 @@ This an an implementation of the bazel remote cache that stores data in Azure
 Blob storage.
 
 I would generally consider this feature complete (outside of exposing certain
-configuration options), however is missing automated integration testing
-(working on this). I have done a fair amount of manual testing with large
-projects (4+ hour builds when uncached with some cache artifacts > 2GB).
+configuration options). This is not currently being used in production, but I
+have done a fair amount of testing with it (both automated and manual).
 
 There are two components:
 

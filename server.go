@@ -43,6 +43,11 @@ type AzureBlobAccountConfig struct {
 	Container string
 	// Prefix is an optional path prefix for blobs in the container
 	Prefix string
+
+	// azClientOpts is used to pass additional options to the Azure Blob Storage client.
+	// This is used by tests to inject custom options such as custom HTTP client with
+	// its own CA pool for self-signed certificates.
+	azClientOpts []func(*azblob.ClientOptions)
 }
 
 func (cfg AzureBlobAccountConfig) Equal(other AzureBlobAccountConfig) bool {
@@ -191,7 +196,14 @@ func (s *AzureBlobServer) createBlobClient(ctx context.Context, cfg *AzureBlobAc
 	tokenCredential := &staticTokenCredential{token: token}
 
 	// Create blob client
-	client, err := azblob.NewClient(cfg.ServiceURL, tokenCredential, nil)
+	var opt *azblob.ClientOptions
+	if len(cfg.azClientOpts) > 0 {
+		opt = &azblob.ClientOptions{}
+		for _, o := range cfg.azClientOpts {
+			o(opt)
+		}
+	}
+	client, err := azblob.NewClient(cfg.ServiceURL, tokenCredential, opt)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create blob client: %v", err)
 	}
@@ -283,16 +295,27 @@ func (s *AzureBlobServer) GetActionResult(ctx context.Context, req *remoteexecut
 			slog.ErrorContext(ctx, "failed to fetch inline blobs", "error", err)
 		}
 
+		stderrHash := ""
+		if result.StderrDigest != nil {
+			stderrHash = result.StderrDigest.Hash
+		}
+
+		stdoutHash := ""
+		if result.StdoutDigest != nil {
+			stdoutHash = result.StdoutDigest.Hash
+		}
+
 		if blobsResult != nil {
 			for _, resp := range blobsResult.Responses {
 				if resp.Status.Code != int32(codes.OK) {
 					slog.ErrorContext(ctx, "failed to fetch blob", "digest", resp.Digest)
 					continue
 				}
+
 				switch resp.Digest.Hash {
-				case result.StderrDigest.Hash:
+				case stderrHash:
 					result.StderrRaw = resp.Data
-				case result.StdoutDigest.Hash:
+				case stdoutHash:
 					result.StdoutRaw = resp.Data
 				default:
 					f, ok := digestToFile[resp.Digest.Hash]
