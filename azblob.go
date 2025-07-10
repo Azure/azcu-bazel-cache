@@ -302,6 +302,9 @@ func (u *azblobUploader) Upload(ctx context.Context, hash string, size int64, rd
 		if ok {
 			return s.Err()
 		}
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return status.Errorf(codes.InvalidArgument, "failed to read data for block %s: %v", br.BlockID(), err)
+		}
 		return status.Errorf(codes.Internal, "failed to read data for block %s: %v", br.BlockID(), err)
 	}
 

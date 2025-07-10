@@ -679,7 +679,7 @@ func (s *AzureBlobServer) Write(srv bytestream.ByteStream_WriteServer) error {
 
 	size, err := s.writeStream(ctx, uploader, srv)
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to write stream: %v", err)
+		return err
 	}
 
 	// Send response

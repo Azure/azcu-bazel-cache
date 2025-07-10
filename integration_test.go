@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -35,6 +36,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/genproto/googleapis/bytestream"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -318,6 +320,66 @@ func TestIntegration(t *testing.T) {
 
 		assert.Equal(t, dt0, hashDt[digests[0].Hash], "Expected first uploaded blob data to match")
 		assert.Equal(t, dt1, hashDt[digests[1].Hash], "Expected second uploaded blob data to match")
+	})
+
+	t.Run("ByteStream", func(t *testing.T) {
+		dir := t.TempDir()
+		f, err := os.CreateTemp(dir, "test-blob-")
+		require.NoError(t, err, "Failed to create temp file for blob upload")
+		defer f.Close()
+
+		hasher := sha256.New()
+
+		// Just some data to fill up the file.
+		dt := bytes.Repeat([]byte("a"), 512*1024) // 512 KB
+		var size int64
+		for range 1024 { // Write 1024 times to make it 512MB
+			w := io.MultiWriter(f, hasher)
+			n, err := w.Write(dt)
+			require.NoError(t, err)
+			size += int64(n)
+		}
+		_, err = f.Seek(0, io.SeekStart)
+		require.NoError(t, err)
+
+		hash := hex.EncodeToString(hasher.Sum(nil))
+		name := fmt.Sprintf("uploads/%s/blobs/%s/%d", "test-uuid", hash, size)
+
+		bsClient := bytestream.NewByteStreamClient(cc)
+		writer, err := bsClient.Write(ctx)
+		require.NoError(t, err)
+		defer writer.CloseSend()
+
+		var msg bytestream.WriteRequest
+
+		var offset int64
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := f.Read(buf)
+			if err != nil && !errors.Is(err, io.EOF) {
+				t.Fatalf("Failed to read from file: %v", err)
+			}
+
+			if n > 0 {
+				msg = bytestream.WriteRequest{
+					ResourceName: name,
+					WriteOffset:  offset,
+					Data:         buf[:n],
+				}
+
+				err := writer.Send(&msg)
+				require.NoError(t, err, "Failed to send WriteRequest, offset: %d, total: %d")
+				offset += int64(n)
+			}
+
+			if err == io.EOF {
+				break
+			}
+		}
+
+		resp, err := writer.CloseAndRecv()
+		require.NoError(t, err)
+		require.Equal(t, size, resp.CommittedSize)
 	})
 }
 
