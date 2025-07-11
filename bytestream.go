@@ -71,6 +71,13 @@ func (s *AzureBlobServer) writeStream(ctx context.Context, client Uploader, srv 
 
 	err = client.Upload(ctx, hash, size, bsr, bsr.msg.WriteOffset)
 	if err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			info, err2 := client.Status(ctx, hash, size)
+			if err2 != nil {
+				return -1, status.Errorf(codes.Internal, "failed to get blob status: %v", err2)
+			}
+			return info.AvailableBytes, nil
+		}
 		return -1, err
 	}
 	return size, nil

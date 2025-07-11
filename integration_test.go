@@ -354,32 +354,94 @@ func TestIntegration(t *testing.T) {
 
 		var offset int64
 		buf := make([]byte, 32*1024)
-		for {
-			n, err := f.Read(buf)
+		breakAfterOffset := int64(100 * 1024 * 1024) // 100 MB
+
+		checkStat := func(completed bool, size int64) {
+			stat, err := bsClient.QueryWriteStatus(ctx, &bytestream.QueryWriteStatusRequest{
+				ResourceName: name,
+			})
+
+			require.NoError(t, err)
+			require.Equal(t, size, stat.CommittedSize)
+			require.Equal(t, completed, stat.Complete)
+		}
+
+		checkMissing := func(expectedMissing bool) {
+			missing, err := casClient.FindMissingBlobs(ctx, &remoteexecution.FindMissingBlobsRequest{
+				BlobDigests: []*remoteexecution.Digest{
+					{Hash: hash, SizeBytes: size},
+				},
+			})
+			require.NoError(t, err)
+
+			if expectedMissing {
+				require.Len(t, missing.MissingBlobDigests, 1, "Expected one missing blob after partial upload")
+				require.Equal(t, hash, missing.MissingBlobDigests[0].Hash, "Expected missing blob to match uploaded blob")
+			} else {
+				require.Len(t, missing.MissingBlobDigests, 0, "Expected no missing blobs after full upload")
+			}
+		}
+
+		writeChunk := func(rdr io.Reader, offset int64) (int64, bool) {
+			n, err := rdr.Read(buf)
 			if err != nil && !errors.Is(err, io.EOF) {
 				t.Fatalf("Failed to read from file: %v", err)
 			}
 
 			if n > 0 {
-				msg = bytestream.WriteRequest{
-					ResourceName: name,
-					WriteOffset:  offset,
-					Data:         buf[:n],
-				}
+				msg.Reset()
+				msg.ResourceName = name
+				msg.WriteOffset = offset
+				msg.Data = buf[:n]
 
 				err := writer.Send(&msg)
-				require.NoError(t, err, "Failed to send WriteRequest, offset: %d, total: %d")
+				require.NoError(t, err, "Failed to send WriteRequest, offset: %d, total: %d", offset, size)
 				offset += int64(n)
 			}
 
-			if err == io.EOF {
+			return offset, err != io.EOF
+		}
+
+		// Write part of the file then break the upload to check resuming behavior.
+		for {
+			if offset > breakAfterOffset {
+				break
+			}
+
+			var more bool
+			offset, more = writeChunk(f, offset)
+			if !more {
 				break
 			}
 		}
 
 		resp, err := writer.CloseAndRecv()
 		require.NoError(t, err)
-		require.Equal(t, size, resp.CommittedSize)
+		require.Equal(t, offset, resp.CommittedSize)
+		checkStat(false, resp.CommittedSize)
+
+		// The blob should *not* be available yet
+		checkMissing(true)
+
+		writer, err = bsClient.Write(ctx)
+		require.NoError(t, err)
+
+		// Now finish the upload
+		for {
+			var more bool
+			offset, more = writeChunk(f, offset)
+			if !more {
+				break
+			}
+		}
+
+		resp, err = writer.CloseAndRecv()
+		require.NoError(t, err)
+		require.Equal(t, offset, resp.CommittedSize)
+		checkStat(true, resp.CommittedSize)
+
+		// The blob should now be available
+		checkMissing(false)
 	})
 }
 

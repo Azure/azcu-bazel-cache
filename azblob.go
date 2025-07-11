@@ -174,10 +174,6 @@ func validateChunks(blockIDs []string, chunks map[string]*BlockInfo, expectedSiz
 }
 
 func (u *azblobUploader) Upload(ctx context.Context, hash string, size int64, rdr io.Reader, offset int64) error {
-	if offset != 0 {
-		return status.Errorf(codes.InvalidArgument, "offset must be 0 for initial upload, resumable upload not supported: got offset %d", offset)
-	}
-
 	if hash == emptySHA256Hash {
 		return nil
 	}
@@ -281,19 +277,24 @@ func (u *azblobUploader) Upload(ctx context.Context, hash string, size int64, rd
 				Size:   int64(len(dt)),
 				ID:     blockID,
 			}
-			continue
-		}
-
-		bufReader.Reset(dt)
-		if err := u.doUpload(ctx, client, bufReader, blockID); err != nil {
-			return err
-		}
-		if chunks != nil {
-			chunks[blockID] = &BlockInfo{
-				Offset: br.offset + br.TotalRead() - int64(len(dt)),
-				Size:   int64(len(dt)),
-				ID:     blockID,
+		} else {
+			bufReader.Reset(dt)
+			if err := u.doUpload(ctx, client, bufReader, blockID); err != nil {
+				return err
 			}
+			if chunks != nil {
+				chunks[blockID] = &BlockInfo{
+					Offset: br.offset + br.TotalRead() - int64(len(dt)),
+					Size:   int64(len(dt)),
+					ID:     blockID,
+				}
+			}
+		}
+	}
+
+	if group != nil {
+		if err := group.Wait(); err != nil {
+			return err
 		}
 	}
 
@@ -303,24 +304,15 @@ func (u *azblobUploader) Upload(ctx context.Context, hash string, size int64, rd
 			return s.Err()
 		}
 		if errors.Is(err, io.ErrUnexpectedEOF) {
-			return status.Errorf(codes.InvalidArgument, "failed to read data for block %s: %v", br.BlockID(), err)
-		}
-		return status.Errorf(codes.Internal, "failed to read data for block %s: %v", br.BlockID(), err)
-	}
-
-	if group != nil {
-		if err := group.Wait(); err != nil {
 			return err
 		}
-	}
 
-	if nr := br.TotalRead(); nr != size-origOffset {
-		return status.Errorf(codes.InvalidArgument, "size mismatch: expected %d, got %d", size, nr)
+		return status.Errorf(codes.Internal, "failed to read data for block %s: %v", br.BlockID(), err)
 	}
 
 	sortBlockIDs(blockIDs)
 
-	// if chunks is not set there isn't much use in validating them our block ID's since those would
+	// if chunks is not set there isn't much use in validating our block ID's since those would
 	// already be consistent.
 	if chunks != nil {
 		if err := validateChunks(blockIDs, chunks, size); err != nil {
