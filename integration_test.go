@@ -1,6 +1,7 @@
 package bazelazblob
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
@@ -537,34 +538,70 @@ func newTestHTTPClient(t *testing.T, cert []byte) *http.Client {
 	}
 }
 
+func createCertsDir(t *testing.T, cert, key *bytes.Buffer) io.Reader {
+	t.Helper()
+
+	buf := bytes.NewBuffer(nil)
+	tw := tar.NewWriter(buf)
+
+	certsDir := &tar.Header{
+		Name:     "certs/",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	}
+	if err := tw.WriteHeader(certsDir); err != nil {
+		t.Fatal("Failed to write certs dir header:", err)
+	}
+
+	certFile := &tar.Header{
+		Name:     "certs/server.crt",
+		Mode:     0600,
+		Size:     int64(cert.Len()),
+		Typeflag: tar.TypeReg,
+	}
+	if err := tw.WriteHeader(certFile); err != nil {
+		t.Fatal("Failed to write cert header:", err)
+	}
+	_, err := io.Copy(tw, cert)
+	if err != nil {
+		t.Fatal("Failed to write cert data:", err)
+	}
+
+	keyFile := &tar.Header{
+		Name:     "certs/server.key",
+		Mode:     0600,
+		Size:     int64(key.Len()),
+		Typeflag: tar.TypeReg,
+	}
+
+	if err := tw.WriteHeader(keyFile); err != nil {
+		t.Fatal("Failed to write key header:", err)
+	}
+
+	_, err = io.Copy(tw, key)
+	if err != nil {
+		t.Fatal("Failed to write key data:", err)
+	}
+
+	if err := tw.Flush(); err != nil {
+		t.Fatal("Failed to flush tar writer:", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal("Failed to close tar writer:", err)
+	}
+	return buf
+}
+
 func runAzurite(ctx context.Context, t *testing.T, client *docker.Client, accountName string) (string, io.Reader) {
 	csvc := client.ContainerService()
 
-	// TODO: Change this to use copy the data into the container rather than bind
-	// mounting since the docker daemon may not have access to the directory.
-	certDir := t.TempDir()
-	certFile := certDir + "/server.crt"
-	keyFile := certDir + "/server.key"
-
-	certW, err := os.Create(certFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer certW.Close()
-
-	keyW, err := os.Create(keyFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer keyW.Close()
+	cert := bytes.NewBuffer(nil)
+	key := bytes.NewBuffer(nil)
 
 	hcfg := containerapi.HostConfig{
 		AutoRemove: true,
 		PortBindings: containerapi.PortMap{
 			azuriteBlobPortKey: []containerapi.PortBinding{{HostIP: "127.0.0.1"}},
-		},
-		Binds: []string{
-			fmt.Sprintf("%s:/certs", certDir),
 		},
 	}
 
@@ -585,7 +622,7 @@ func runAzurite(ctx context.Context, t *testing.T, client *docker.Client, accoun
 	}
 
 	retCert := bytes.NewBuffer(nil)
-	createTLSCerts(t, io.MultiWriter(retCert, certW), keyW)
+	createTLSCerts(t, io.MultiWriter(retCert, cert), key)
 
 	createOpts := []container.CreateOption{
 		container.WithCreateHostConfig(hcfg),
@@ -611,6 +648,11 @@ func runAzurite(ctx context.Context, t *testing.T, client *docker.Client, accoun
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+
+	err = c.Upload(ctx, "/", createCertsDir(t, cert, key))
+	if err != nil {
+		t.Fatal("Failed to upload certs to container:", err)
 	}
 
 	t.Cleanup(func() {
