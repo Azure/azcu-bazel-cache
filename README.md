@@ -3,9 +3,12 @@
 This an an implementation of the bazel remote cache that stores data in Azure
 Blob storage.
 
-I would generally consider this feature complete (outside of exposing certain
-configuration options). This is not currently being used in production, but I
-have done a fair amount of testing with it (both automated and manual).
+The project is essentially feature complete, outside of exposing certain
+configuration options. It is not currently being used in production but there
+has been a fair amount of testing (both manual and automated) to ensure that
+the implementation is correct.
+
+This is intended to be used as a library to build your own integration with.
 
 There are two components:
 
