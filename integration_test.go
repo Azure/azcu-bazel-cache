@@ -61,6 +61,22 @@ func TestMain(m *testing.M) {
 }
 
 func TestIntegration(t *testing.T) {
+	accountName := "some_account"
+	t.Run("default token provider", func(t *testing.T) {
+		testIntegration(t, accountName, nil)
+	})
+
+	t.Run("custom token provider", func(t *testing.T) {
+		tp := &staticTokenCredential{fakeJWT(accountName)}
+		testIntegration(t, accountName, tp)
+	})
+}
+
+// When `azAuth` is nil, the test sets up the proxy server which injects auth
+// tokens into requests.
+// When `azAuth` is not nil, the test uses the provided token provider directly
+// and does not set up the proxy server.
+func testIntegration(t *testing.T, accountName string, azAuth TokenProvider) {
 	if testing.Short() {
 		t.Skip("Skipping integration tests in short mode")
 	}
@@ -69,8 +85,6 @@ func TestIntegration(t *testing.T) {
 
 	ctx := baseCtx
 	client := docker.NewClient()
-
-	accountName := "some_account"
 
 	serviceURL, certRdr := runAzurite(ctx, t, client, accountName)
 	cert, err := io.ReadAll(certRdr)
@@ -94,15 +108,20 @@ func TestIntegration(t *testing.T) {
 			Prefix:       "ac",
 			azClientOpts: clientOpts,
 		},
+		TokenProvider: azAuth,
 	}
 
 	// Create the blob containers needed for the test.
 	// The bazelazblob server will not create these automatically, they must pre-exist.
-	token := fakeJWT(accountName)
-	azAuth := &staticTokenCredential{token: token}
+	skipProxy := true
+	if azAuth == nil {
+		skipProxy = false
+		token := fakeJWT(accountName)
+		azAuth = &staticTokenCredential{token: token}
+	}
 	createBlobContainers(ctx, t, cert, azAuth, serviceURL, cfg.CAS.Container, cfg.AC.Container)
 
-	dialer := setupTestServers(ctx, t, cfg, azAuth)
+	dialer := setupTestServers(ctx, t, cfg, azAuth, skipProxy)
 
 	cc, err := grpc.NewClient("passthrough://", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -446,7 +465,7 @@ func TestIntegration(t *testing.T) {
 	})
 }
 
-func setupTestServers(ctx context.Context, t *testing.T, cfg AzureBlobServerConfig, auth azcore.TokenCredential) func(context.Context, string) (net.Conn, error) {
+func setupTestServers(ctx context.Context, t *testing.T, cfg AzureBlobServerConfig, auth azcore.TokenCredential, skipProxy bool) func(context.Context, string) (net.Conn, error) {
 	var srvListener, proxyListener pipeListener
 	t.Cleanup(func() {
 		srvListener.Close()
@@ -462,41 +481,49 @@ func setupTestServers(ctx context.Context, t *testing.T, cfg AzureBlobServerConf
 	RegisterAzureBlobServer(grpcAzblobServ, srv)
 	t.Cleanup(grpcAzblobServ.Stop)
 
-	dialOpts := []grpc.DialOption{
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-			return srvListener.Dialer(ctx)
-		}),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithStreamInterceptor(StreamClientAuthInterceptor(auth)),
-		grpc.WithUnaryInterceptor(UnaryClientAuthInterceptor(auth)),
-	}
-
-	// passthrough:// is a special scheme that prevents the gRPC client from
-	// trying to resolve the address, which is necessary since we are using a
-	// pipe listener.
-	cc, err := grpc.NewClient("passthrough://", dialOpts...)
-	if err != nil {
-		t.Fatal("Failed to create gRPC client:", err)
-	}
-	t.Cleanup(func() { cc.Close() })
-
-	proxy := NewProxy(ProxyBackendFromGRPC(cc))
-
-	grpcProxyServ := grpc.NewServer()
-	RegisterProxyServer(grpcProxyServ, proxy)
-	t.Cleanup(grpcProxyServ.Stop)
-
 	var eg errgroup.Group
+
+	if !skipProxy {
+		dialOpts := []grpc.DialOption{
+			grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+				return srvListener.Dialer(ctx)
+			}),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithStreamInterceptor(StreamClientAuthInterceptor(auth)),
+			grpc.WithUnaryInterceptor(UnaryClientAuthInterceptor(auth)),
+		}
+
+		// passthrough:// is a special scheme that prevents the gRPC client from
+		// trying to resolve the address, which is necessary since we are using a
+		// pipe listener.
+		cc, err := grpc.NewClient("passthrough://", dialOpts...)
+		if err != nil {
+			t.Fatal("Failed to create gRPC client:", err)
+		}
+		t.Cleanup(func() { cc.Close() })
+
+		proxy := NewProxy(ProxyBackendFromGRPC(cc))
+
+		grpcProxyServ := grpc.NewServer()
+		RegisterProxyServer(grpcProxyServ, proxy)
+		t.Cleanup(grpcProxyServ.Stop)
+		go func() {
+			<-ctx.Done()
+			grpcProxyServ.Stop()
+		}()
+		eg.Go(func() error { return grpcProxyServ.Serve(&proxyListener) })
+	}
+
 	go func() {
 		<-ctx.Done()
-		grpcProxyServ.Stop()
 		grpcAzblobServ.Stop()
 	}()
-
 	eg.Go(func() error { return grpcAzblobServ.Serve(&srvListener) })
-	eg.Go(func() error { return grpcProxyServ.Serve(&proxyListener) })
 
 	return func(ctx context.Context, _ string) (net.Conn, error) {
+		if skipProxy {
+			return srvListener.Dialer(ctx)
+		}
 		return proxyListener.Dialer(ctx)
 	}
 }

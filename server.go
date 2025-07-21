@@ -64,6 +64,11 @@ type AzureBlobServerConfig struct {
 	CAS AzureBlobAccountConfig
 	// AC is the Azure blob store configuration for Bazel Action Cache
 	AC AzureBlobAccountConfig
+
+	// TokenProvider is an optional token provider for authentication.
+	// If set, it will be used to create a token credential for the Azure Blob Storage client.
+	// If not set, a token will be extracted from the gRPC metadata.
+	TokenProvider TokenProvider
 }
 
 // AzureBlobServer implements the Bazel Remote Execution API using Azure Blob Storage
@@ -171,29 +176,32 @@ func (s *AzureBlobServer) createBlobClient(ctx context.Context, cfg *AzureBlobAc
 		return s.client, nil
 	}
 
-	// Extract auth token from gRPC metadata
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return nil, status.Error(codes.Unauthenticated, "no metadata found")
-	}
+	tc := s.cfg.TokenProvider
+	if tc == nil {
+		// Extract auth token from gRPC metadata
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			return nil, status.Error(codes.Unauthenticated, "no metadata found")
+		}
 
-	authHeaders := md.Get(authHeaderName)
-	if len(authHeaders) == 0 {
-		return nil, status.Error(codes.Unauthenticated, "no authorization header")
-	}
+		authHeaders := md.Get(authHeaderName)
+		if len(authHeaders) == 0 {
+			return nil, status.Error(codes.Unauthenticated, "no authorization header")
+		}
 
-	authHeader := authHeaders[0]
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		return nil, status.Error(codes.Unauthenticated, "invalid authorization header format")
-	}
+		authHeader := authHeaders[0]
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			return nil, status.Error(codes.Unauthenticated, "invalid authorization header format")
+		}
 
-	token := strings.TrimPrefix(authHeader, "Bearer ")
-	if len(token) == 0 {
-		return nil, status.Error(codes.Unauthenticated, "empty token in authorization header")
-	}
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if len(token) == 0 {
+			return nil, status.Error(codes.Unauthenticated, "empty token in authorization header")
+		}
 
-	// Create token credential from the extracted token
-	tokenCredential := &staticTokenCredential{token: token}
+		// Create token credential from the extracted token
+		tc = &staticTokenCredential{token: token}
+	}
 
 	// Create blob client
 	var opt *azblob.ClientOptions
@@ -203,7 +211,8 @@ func (s *AzureBlobServer) createBlobClient(ctx context.Context, cfg *AzureBlobAc
 			o(opt)
 		}
 	}
-	client, err := azblob.NewClient(cfg.ServiceURL, tokenCredential, opt)
+
+	client, err := azblob.NewClient(cfg.ServiceURL, tc, opt)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create blob client: %v", err)
 	}
