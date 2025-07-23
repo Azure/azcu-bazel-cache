@@ -33,7 +33,7 @@ func (c *azblobClient) Downloader(container, prefix string) Downloader {
 }
 
 func makeBlobPath(prefix string, id BlobID) string {
-	return path.Join(prefix, digestFuncString, id.Hash, strconv.FormatInt(id.SizeBytes, 10))
+	return path.Join(prefix, digestFuncString, id.Hash+"-"+strconv.FormatInt(id.SizeBytes, 10))
 }
 
 type azblobUploader struct {
