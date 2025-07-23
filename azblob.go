@@ -32,6 +32,10 @@ func (c *azblobClient) Downloader(container, prefix string) Downloader {
 	return &azblobDownloader{az: c.az, container: container, prefix: prefix}
 }
 
+func makeBlobPath(prefix, hash string, size int64) string {
+	return path.Join(prefix, digestFuncString, hash+"-"+strconv.FormatInt(size, 10))
+}
+
 type azblobUploader struct {
 	az        *azblob.Client
 	container string
@@ -184,7 +188,7 @@ func (u *azblobUploader) Upload(ctx context.Context, hash string, size int64, rd
 	// is a valid string for Azure Blob Storage.
 	// The block ID is of the form "offset-<offset>", where <offset>.
 	// This allows us to both get some deduplication and support resuming uploads.
-	name := path.Join(u.prefix, digestFuncString, hash, strconv.FormatInt(size, 10))
+	name := makeBlobPath(u.prefix, hash, size)
 
 	const (
 		maxConcurrency     = 16
@@ -453,7 +457,7 @@ func (u *azblobUploader) Status(ctx context.Context, hash string, size int64) (i
 		return BlobInfo{AvailableBytes: 0}, nil
 	}
 
-	name := path.Join(u.prefix, digestFuncString, hash, strconv.FormatInt(size, 10))
+	name := makeBlobPath(u.prefix, hash, size)
 	c := u.az.ServiceClient().NewContainerClient(u.container).NewBlockBlobClient(name)
 
 	info, err = u.status(ctx, c)
@@ -474,7 +478,7 @@ func (d *azblobDownloader) Download(ctx context.Context, hash string, size, offs
 		return io.NopCloser(bytes.NewReader(nil)), nil
 	}
 
-	name := path.Join(d.prefix, digestFuncString, hash, strconv.FormatInt(size, 10))
+	name := makeBlobPath(d.prefix, hash, size)
 
 	var opts *azblob.DownloadStreamOptions
 	if offset > 0 || count > 0 {
@@ -508,7 +512,7 @@ func (d *azblobDownloader) Exists(ctx context.Context, hash string, size int64) 
 		return true, nil // Empty hash is always considered existing.
 	}
 
-	name := path.Join(d.prefix, digestFuncString, hash, strconv.FormatInt(size, 10))
+	name := makeBlobPath(d.prefix, hash, size)
 	c := d.az.ServiceClient().NewContainerClient(d.container).NewBlobClient(name)
 
 	var exists bool
