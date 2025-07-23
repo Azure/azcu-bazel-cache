@@ -240,7 +240,7 @@ func (s *AzureBlobServer) GetActionResult(ctx context.Context, req *remoteexecut
 	}
 
 	downloader := client.Downloader(s.cfg.AC.Container, s.cfg.AC.Prefix)
-	rc, err := downloader.Download(ctx, req.ActionDigest.Hash, req.ActionDigest.SizeBytes, 0, 0)
+	rc, err := downloader.Download(ctx, newBlobID(req.ActionDigest.Hash, req.ActionDigest.SizeBytes), 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +354,7 @@ func (s *AzureBlobServer) UpdateActionResult(ctx context.Context, req *remoteexe
 	}
 
 	uploader := client.Uploader(s.cfg.AC.Container, s.cfg.AC.Prefix)
-	err = uploader.Upload(ctx, req.ActionDigest.Hash, req.ActionDigest.SizeBytes, bytes.NewReader(dt), 0)
+	err = uploader.Upload(ctx, newBlobID(req.ActionDigest.Hash, req.ActionDigest.SizeBytes), int64(len(dt)), bytes.NewReader(dt), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +401,7 @@ func (s *AzureBlobServer) FindMissingBlobs(ctx context.Context, req *remoteexecu
 			}
 			defer sem.Release(1)
 
-			exists, err := downloader.Exists(ctx, digest.Hash, digest.SizeBytes)
+			exists, err := downloader.Exists(ctx, newBlobID(digest.Hash, digest.SizeBytes))
 			if err != nil {
 				// Maybe this should trigger an error return?
 				// Seems like an error on one blob shouldn't stop the whole operation
@@ -489,7 +489,7 @@ func (s *AzureBlobServer) BatchUpdateBlobs(ctx context.Context, req *remoteexecu
 			}
 			defer sem.Release(1)
 
-			err = uploader.Upload(ctx, r.Digest.Hash, r.Digest.SizeBytes, bytes.NewReader(r.Data), 0)
+			err = uploader.Upload(ctx, newBlobID(r.Digest.Hash, r.Digest.SizeBytes), int64(len(r.Data)), bytes.NewReader(r.Data), 0)
 			if err != nil {
 				s, ok := status.FromError(err)
 				if !ok {
@@ -565,7 +565,7 @@ func (s *AzureBlobServer) batchReadBlobs(ctx context.Context, downloader Downloa
 			}
 			defer sem.Release(1)
 
-			rc, err := downloader.Download(ctx, d.Hash, d.SizeBytes, 0, 0)
+			rc, err := downloader.Download(ctx, newBlobID(d.Hash, d.SizeBytes), 0, 0)
 			if err != nil {
 				resultChan <- &remoteexecution.BatchReadBlobsResponse_Response{
 					Digest: d,
@@ -654,7 +654,7 @@ func (s *AzureBlobServer) Read(req *bytestream.ReadRequest, srv bytestream.ByteS
 	}
 
 	downloader := client.Downloader(s.cfg.CAS.Container, s.cfg.CAS.Prefix)
-	rc, err := downloader.Download(ctx, hash, size, req.ReadOffset, req.ReadLimit)
+	rc, err := downloader.Download(ctx, newBlobID(hash, size), req.ReadOffset, req.ReadLimit)
 	if err != nil {
 		return err
 	}
@@ -723,7 +723,7 @@ func (s *AzureBlobServer) QueryWriteStatus(ctx context.Context, req *bytestream.
 	// We do not support querrying write status or resumable uploads, so either the blob exists or it doesn't.
 	// If it exists, we return the committed size and complete status.
 	// If it doesn't exist, we return 0 committed size and complete false.
-	exists, err := downloader.Exists(ctx, hash, size)
+	exists, err := downloader.Exists(ctx, newBlobID(hash, size))
 	if err != nil {
 		return nil, err
 	}
@@ -736,7 +736,7 @@ func (s *AzureBlobServer) QueryWriteStatus(ctx context.Context, req *bytestream.
 	}
 
 	u := client.Uploader(s.cfg.CAS.Container, s.cfg.CAS.Prefix)
-	info, err := u.Status(ctx, hash, size)
+	info, err := u.Status(ctx, newBlobID(hash, size))
 	if err != nil {
 		return nil, err
 	}

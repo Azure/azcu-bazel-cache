@@ -32,8 +32,8 @@ func (c *azblobClient) Downloader(container, prefix string) Downloader {
 	return &azblobDownloader{az: c.az, container: container, prefix: prefix}
 }
 
-func makeBlobPath(prefix, hash string, size int64) string {
-	return path.Join(prefix, digestFuncString, hash+"-"+strconv.FormatInt(size, 10))
+func makeBlobPath(prefix string, id BlobID) string {
+	return path.Join(prefix, digestFuncString, id.Hash, strconv.FormatInt(id.SizeBytes, 10))
 }
 
 type azblobUploader struct {
@@ -177,8 +177,8 @@ func validateChunks(blockIDs []string, chunks map[string]*BlockInfo, expectedSiz
 	return nil
 }
 
-func (u *azblobUploader) Upload(ctx context.Context, hash string, size int64, rdr io.Reader, offset int64) error {
-	if hash == emptySHA256Hash {
+func (u *azblobUploader) Upload(ctx context.Context, id BlobID, size int64, rdr io.Reader, offset int64) error {
+	if id.Hash == emptySHA256Hash {
 		return nil
 	}
 
@@ -188,7 +188,7 @@ func (u *azblobUploader) Upload(ctx context.Context, hash string, size int64, rd
 	// is a valid string for Azure Blob Storage.
 	// The block ID is of the form "offset-<offset>", where <offset>.
 	// This allows us to both get some deduplication and support resuming uploads.
-	name := makeBlobPath(u.prefix, hash, size)
+	name := makeBlobPath(u.prefix, id)
 
 	const (
 		maxConcurrency     = 16
@@ -452,12 +452,12 @@ func (u *azblobUploader) status(ctx context.Context, client *blockblob.Client) (
 	return info, err
 }
 
-func (u *azblobUploader) Status(ctx context.Context, hash string, size int64) (info BlobInfo, err error) {
-	if hash == emptySHA256Hash {
+func (u *azblobUploader) Status(ctx context.Context, id BlobID) (info BlobInfo, err error) {
+	if id.Hash == emptySHA256Hash {
 		return BlobInfo{AvailableBytes: 0}, nil
 	}
 
-	name := makeBlobPath(u.prefix, hash, size)
+	name := makeBlobPath(u.prefix, id)
 	c := u.az.ServiceClient().NewContainerClient(u.container).NewBlockBlobClient(name)
 
 	info, err = u.status(ctx, c)
@@ -473,12 +473,12 @@ type azblobDownloader struct {
 	prefix    string
 }
 
-func (d *azblobDownloader) Download(ctx context.Context, hash string, size, offset, count int64) (io.ReadCloser, error) {
-	if hash == emptySHA256Hash {
+func (d *azblobDownloader) Download(ctx context.Context, id BlobID, offset, count int64) (io.ReadCloser, error) {
+	if id.Hash == emptySHA256Hash {
 		return io.NopCloser(bytes.NewReader(nil)), nil
 	}
 
-	name := makeBlobPath(d.prefix, hash, size)
+	name := makeBlobPath(d.prefix, id)
 
 	var opts *azblob.DownloadStreamOptions
 	if offset > 0 || count > 0 {
@@ -507,12 +507,12 @@ func (d *azblobDownloader) Download(ctx context.Context, hash string, size, offs
 	return rc, err
 }
 
-func (d *azblobDownloader) Exists(ctx context.Context, hash string, size int64) (bool, error) {
-	if hash == emptySHA256Hash {
+func (d *azblobDownloader) Exists(ctx context.Context, id BlobID) (bool, error) {
+	if id.Hash == emptySHA256Hash {
 		return true, nil // Empty hash is always considered existing.
 	}
 
-	name := makeBlobPath(d.prefix, hash, size)
+	name := makeBlobPath(d.prefix, id)
 	c := d.az.ServiceClient().NewContainerClient(d.container).NewBlobClient(name)
 
 	var exists bool

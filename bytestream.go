@@ -69,10 +69,10 @@ func (s *AzureBlobServer) writeStream(ctx context.Context, client Uploader, srv 
 		return -1, status.Errorf(codes.InvalidArgument, "failed to parse resource name: %v", err)
 	}
 
-	err = client.Upload(ctx, hash, size, bsr, bsr.msg.WriteOffset)
+	err = client.Upload(ctx, newBlobID(hash, size), size, bsr, bsr.msg.WriteOffset)
 	if err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) {
-			info, err2 := client.Status(ctx, hash, size)
+			info, err2 := client.Status(ctx, newBlobID(hash, size))
 			if err2 != nil {
 				return -1, status.Errorf(codes.Internal, "failed to get blob status: %v", err2)
 			}

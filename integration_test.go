@@ -220,17 +220,33 @@ func testIntegration(t *testing.T, accountName string, azAuth TokenProvider) {
 				StderrDigest: uploaded[2],
 			}
 
-			acDt, err := proto.Marshal(actionResult)
-			require.NoError(t, err, "Failed to marshal action result")
+			cmd := &remoteexecution.Command{
+				Arguments:            []string{"echo", "Hello, ${WHO}!"},
+				EnvironmentVariables: []*remoteexecution.Command_EnvironmentVariable{{Name: "WHO", Value: "World"}},
+				WorkingDirectory:     "/",
+			}
+			cmdDt, err := proto.Marshal(cmd)
+			require.NoError(t, err, "Failed to marshal command")
+			uploadedBlobs := uploadBlobs(t, cmdDt)
+
+			action := remoteexecution.Action{
+				CommandDigest: uploadedBlobs[0],
+			}
+
+			actionDt, err := proto.Marshal(&action)
+			require.NoError(t, err, "Failed to marshal action")
+
+			uploadedBlobs = uploadBlobs(t, actionDt)
+			actionDigest := uploadedBlobs[0]
 
 			_, err = client.UpdateActionResult(ctx, &remoteexecution.UpdateActionResultRequest{
-				ActionDigest: makeDigest(acDt),
+				ActionDigest: actionDigest,
 				ActionResult: actionResult,
 			})
 			require.NoError(t, err)
 
 			actual, err := client.GetActionResult(ctx, &remoteexecution.GetActionResultRequest{
-				ActionDigest:      makeDigest(acDt),
+				ActionDigest:      actionDigest,
 				InlineOutputFiles: []string{"output.txt"},
 				InlineStdout:      true,
 				InlineStderr:      true,
@@ -253,7 +269,7 @@ func testIntegration(t *testing.T, accountName string, azAuth TokenProvider) {
 			// Again but without requesting inlining, which means the response should
 			// *not* contain any of the actual contents.
 			actual, err = client.GetActionResult(ctx, &remoteexecution.GetActionResultRequest{
-				ActionDigest: makeDigest(acDt),
+				ActionDigest: actionDigest,
 			})
 			require.NoError(t, err, "GetActionResult should succeed for stored action result")
 			require.Len(t, actual.OutputFiles, 1, "Expected one output file in action result")
