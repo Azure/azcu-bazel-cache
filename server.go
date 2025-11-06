@@ -82,6 +82,8 @@ type AzureBlobServer struct {
 	client BlobClient
 }
 
+var _ remoteexecution.ContentAddressableStorageServer = (*AzureBlobServer)(nil)
+
 func RegisterAzureBlobServer(srv *grpc.Server, azb *AzureBlobServer) {
 	remoteexecution.RegisterActionCacheServer(srv, azb)
 	remoteexecution.RegisterContentAddressableStorageServer(srv, azb)
@@ -606,6 +608,14 @@ func (s *AzureBlobServer) batchReadBlobs(ctx context.Context, downloader Downloa
 
 func (s *AzureBlobServer) GetTree(req *remoteexecution.GetTreeRequest, srv remoteexecution.ContentAddressableStorage_GetTreeServer) error {
 	return status.Errorf(codes.Unimplemented, "GetTree is not implemented since this is for caching only")
+}
+
+func (s *AzureBlobServer) SplitBlob(ctx context.Context, req *remoteexecution.SplitBlobRequest) (*remoteexecution.SplitBlobResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "SplitBlob is not implemented since this is for caching only")
+}
+
+func (s *AzureBlobServer) SpliceBlob(ctx context.Context, req *remoteexecution.SpliceBlobRequest) (*remoteexecution.SpliceBlobResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "SpliceBlob is not implemented since this is for caching only")
 }
 
 func (s *AzureBlobServer) GetCapabilities(ctx context.Context, req *remoteexecution.GetCapabilitiesRequest) (*remoteexecution.ServerCapabilities, error) {

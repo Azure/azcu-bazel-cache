@@ -102,6 +102,14 @@ func (p *Proxy) GetTree(req *remoteexecution.GetTreeRequest, srv remoteexecution
 	}
 }
 
+func (p *Proxy) SplitBlob(ctx context.Context, req *remoteexecution.SplitBlobRequest) (*remoteexecution.SplitBlobResponse, error) {
+	return p.backend.SplitBlob(ctx, req)
+}
+
+func (p *Proxy) SpliceBlob(ctx context.Context, req *remoteexecution.SpliceBlobRequest) (*remoteexecution.SpliceBlobResponse, error) {
+	return p.backend.SpliceBlob(ctx, req)
+}
+
 func (p *Proxy) Read(req *bytestream.ReadRequest, srv bytestream.ByteStream_ReadServer) error {
 	ctx := srv.Context()
 	client, err := p.backend.Read(ctx, req)

@@ -6,7 +6,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.18.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.9.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.1
-	github.com/bazelbuild/remote-apis v0.0.0-20250410133023-536ec595e1df
+	github.com/bazelbuild/remote-apis v0.0.0-20250915115802-824e1ba94b2d
 	github.com/cpuguy83/go-docker v0.4.0
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/sync v0.15.0
