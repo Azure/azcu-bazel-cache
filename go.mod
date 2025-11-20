@@ -1,6 +1,6 @@
 module github.com/Azure/azcu-bazel-cache
 
-go 1.23.0
+go 1.24.0
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.18.0
@@ -9,7 +9,7 @@ require (
 	github.com/bazelbuild/remote-apis v0.0.0-20250915115802-824e1ba94b2d
 	github.com/cpuguy83/go-docker v0.4.0
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/sync v0.15.0
+	golang.org/x/sync v0.18.0
 	google.golang.org/genproto/googleapis/bytestream v0.0.0-20250707201910-8d1bb00bc6a7
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.6
@@ -26,10 +26,10 @@ require (
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	golang.org/x/crypto v0.37.0 // indirect
-	golang.org/x/net v0.39.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
-	golang.org/x/text v0.24.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250324211829-b45e905df463 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250324211829-b45e905df463 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
